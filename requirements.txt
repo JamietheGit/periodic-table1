@@ -1,0 +1,419 @@
+import json
+import os
+import streamlit as st
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Page Configuration
+st.set_page_config(
+    page_title="Interactive Element Explorer",
+    page_icon="⚛️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom Styling (Dark Navy & Scientific Blue Theme)
+st.markdown("""
+    <style>
+    .stApp {
+        background-color: #0b1329;
+        color: #e2e8f0;
+        font-family: 'Inter', sans-serif;
+    }
+    .sidebar .stSidebar {
+        background-color: #0f1c3f;
+    }
+    .element-card {
+        background: #111e38;
+        border: 1px solid #1e3a8a;
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+    }
+    .highlight-card {
+        background: #1e3a8a;
+        border: 2px solid #60a5fa;
+        border-radius: 12px;
+        padding: 16px;
+    }
+    .metric-container {
+        background-color: #132247;
+        border-radius: 8px;
+        padding: 10px;
+        text-align: center;
+        border: 1px solid #1d4ed8;
+    }
+    h1, h2, h3 {
+        color: #f8fafc;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Chemical Family Color Mapping
+FAMILY_COLORS = {
+    "Alkali metals": "#ef4444",         # Red
+    "Alkaline earth metals": "#f97316", # Orange
+    "Transition metals": "#eab308",     # Yellow
+    "Lanthanides": "#38bdf8",           # Light Blue
+    "Actinides": "#818cf8",             # Indigo
+    "Other metals": "#a855f7",          # Purple
+    "Metalloids": "#ec4899",            # Pink
+    "Reactive nonmetals": "#10b981",    # Emerald
+    "Halogens": "#06b6d4",              # Cyan
+    "Noble gases": "#64748b"            # Slate Gray
+}
+
+@st.cache_data
+def load_element_data():
+    """Load element data from JSON file."""
+    data_path = "elements_data.json"
+    if os.path.exists(data_path):
+        with open(data_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+ELEMENTS_DATA = load_element_data()
+
+# Initialize Session State
+if 'selected_atomic_num' not in st.session_state:
+    st.session_state.selected_atomic_num = 58  # Cerium default
+if 'selected_family' not in st.session_state:
+    st.session_state.selected_family = "Lanthanides"
+if 'show_complete_profile' not in st.session_state:
+    st.session_state.show_complete_profile = False
+
+def get_element_by_atomic_number(atomic_num):
+    return ELEMENTS_DATA.get(str(atomic_num), None)
+
+def get_element_by_symbol(symbol):
+    for key, val in ELEMENTS_DATA.items():
+        if val["symbol"].lower() == symbol.lower():
+            return val
+    return None
+
+def get_family_elements(family_name):
+    return [el for el in ELEMENTS_DATA.values() if el["family"] == family_name]
+
+def reset_to_cerium():
+    """Reset all state to Cerium (Atomic Number 58)."""
+    st.session_state.selected_atomic_num = 58
+    st.session_state.selected_family = "Lanthanides"
+    st.session_state.show_complete_profile = False
+
+def draw_bohr_diagram(element):
+    """Dynamically generate a Matplotlib Bohr-style atomic diagram."""
+    fig, ax = plt.subplots(figsize=(6, 6))
+    fig.patch.set_facecolor('#0b1329')
+    ax.set_facecolor('#0b1329')
+
+    shells = element.get("shell_distribution", [2])
+    symbol = element["symbol"]
+    protons = element["protons"]
+    
+    # Standard shell maximum capacities
+    max_shell_capacities = [2, 8, 18, 32, 32, 18, 8]
+
+    # Draw nucleus
+    nucleus_circle = plt.Circle((0, 0), 1.2, color='#1e3a8a', ec='#60a5fa', lw=2, zorder=10)
+    ax.add_patch(nucleus_circle)
+    ax.text(0, 0, f"{symbol}\n({protons}p)", color='white', weight='bold', fontsize=12, ha='center', va='center', zorder=11)
+
+    max_shells = len(shells)
+    base_radius = 2.2
+    step = 1.4
+
+    for i, occupied in enumerate(shells):
+        r = base_radius + i * step
+        max_cap = max_shell_capacities[i] if i < len(max_shell_capacities) else (2 * (i+1)**2)
+
+        # Draw shell circle (unoccupied path model representation)
+        shell_circle = plt.Circle((0, 0), r, color='#334155', fill=False, ls='--', lw=1.5, alpha=0.6)
+        ax.add_patch(shell_circle)
+
+        # Distribute electrons around the shell
+        for e_idx in range(max_cap):
+            angle = (2 * np.pi * e_idx) / max_cap - np.pi / 2
+            ex = r * np.cos(angle)
+            ey = r * np.sin(angle)
+
+            if e_idx < occupied:
+                # Occupied electron: solid blue dot
+                dot = plt.Circle((ex, ey), 0.22, color='#38bdf8', ec='#bae6fd', lw=1.2, zorder=5)
+                ax.add_patch(dot)
+            else:
+                # Unoccupied electron position: hollow circle with contrasting outline
+                hollow = plt.Circle((ex, ey), 0.18, color='#0b1329', ec='#64748b', lw=1.5, zorder=4)
+                ax.add_patch(hollow)
+
+    limit = base_radius + max_shells * step + 0.8
+    ax.set_xlim(-limit, limit)
+    ax.set_ylim(-limit, limit)
+    ax.axis('off')
+
+    # Legend / Title
+    ax.set_title(f"Bohr Model for {element['name']} ({element['electron_config']})", color='#f8fafc', fontsize=12, pad=10, weight='bold')
+    
+    return fig
+
+# --- SIDEBAR NAVIGATION ---
+st.sidebar.markdown("# ⚛️ Element Explorer")
+st.sidebar.markdown("---")
+
+# Reset Button
+if st.sidebar.button("↩ Reset to Cerium", use_container_width=True, type="primary"):
+    reset_to_cerium()
+    st.rerun()
+
+st.sidebar.markdown("---")
+
+# Search Field
+search_query = st.sidebar.text_input("🔍 Quick Search (Name, Symbol, No.)", "").strip()
+if search_query:
+    matched = None
+    if search_query.isdigit():
+        matched = get_element_by_atomic_number(int(search_query))
+    else:
+        matched = get_element_by_symbol(search_query)
+        if not matched:
+            for el in ELEMENTS_DATA.values():
+                if el["name"].lower() == search_query.lower():
+                    matched = el
+                    break
+    if matched:
+        st.sidebar.success(f"Found: {matched['name']} (Z={matched['atomic_number']})")
+        st.session_state.selected_atomic_num = int(matched["atomic_number"])
+        st.session_state.selected_family = matched["family"]
+    else:
+        st.sidebar.error("Element not found.")
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("🧪 Chemical Families")
+
+# 10 Chemical Families with counts
+families_list = [
+    "Alkali metals",
+    "Alkaline earth metals",
+    "Transition metals",
+    "Lanthanides",
+    "Actinides",
+    "Other metals",
+    "Metalloids",
+    "Reactive nonmetals",
+    "Halogens",
+    "Noble gases"
+]
+
+family_counts = {fam: len(get_family_elements(fam)) for fam in families_list}
+
+selected_fam_nav = st.sidebar.selectbox(
+    "Select Family to Explore",
+    families_list,
+    index=families_list.index(st.session_state.selected_family) if st.session_state.selected_family in families_list else 3
+)
+
+if selected_fam_nav != st.session_state.selected_family:
+    st.session_state.selected_family = selected_fam_nav
+
+st.sidebar.markdown(f"**Elements in family:** {family_counts[selected_fam_nav]}")
+
+# Display clickable tiles for selected family in sidebar
+fam_elements = get_family_elements(selected_fam_nav)
+fam_cols = st.sidebar.columns(3)
+for idx, el in enumerate(fam_elements):
+    col_idx = idx % 3
+    with fam_cols[col_idx]:
+        is_sel = (int(el["atomic_number"]) == st.session_state.selected_atomic_num)
+        btn_type = "primary" if is_sel else "secondary"
+        if st.button(f"{el['symbol']}\n{el['atomic_number']}", key=f"fam_tile_{el['atomic_number']}", use_container_width=True):
+            st.session_state.selected_atomic_num = int(el["atomic_number"])
+            st.rerun()
+
+# --- MAIN CONTENT AREA ---
+st.title("⚛️ Interactive Periodic Table and Element Explorer")
+st.markdown("Explore the 118 chemical elements, analyze their atomic structures, inspect physical properties, and investigate detailed scientific profiles.")
+
+current_element = get_element_by_atomic_number(st.session_state.selected_atomic_num)
+
+if not current_element:
+    current_element = ELEMENTS_DATA["58"]  # Fallback to Cerium
+
+# Layout: Top Section (Profile & Bohr Diagram)
+col_profile, col_bohr = st.columns([1.2, 1])
+
+with col_profile:
+    st.markdown(f"### 📍 Selected Element: **{current_element['name']}** ({current_element['symbol']})")
+    
+    fam_color = FAMILY_COLORS.get(current_element["family"], "#3b82f6")
+    
+    st.markdown(f"""
+    <div style="background-color: #111e38; border-left: 5px solid {fam_color}; padding: 15px; border-radius: 8px;">
+        <h4 style="margin: 0; color: #f8fafc;">Atomic Number: {current_element['atomic_number']} | Family: <span style="color: {fam_color};">{current_element['family']}</span></h4>
+        <hr style="border-color: #1e3a8a; margin: 10px 0;">
+        <p><b>Standard Atomic Weight:</b> {current_element['atomic_weight']}</p>
+        <p><b>Period:</b> {current_element['period']} | <b>Group:</b> {current_element['group']}</p>
+        <p><b>Electron Configuration:</b> {current_element['electron_config']}</p>
+        <p><b>Physical State (Room Temp):</b> {current_element['phase']}</p>
+        <p><b>Melting Point:</b> {current_element['melting_point']}</p>
+        <p><b>Boiling Point:</b> {current_element['boiling_point']}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_bohr:
+    fig = draw_bohr_diagram(current_element)
+    st.pyplot(fig, use_container_width=True)
+    st.markdown("<p style='text-align: center; font-size: 0.85rem; color: #94a3b8;'>🔵 Solid blue dots: Occupied electron positions<br>⚪ Hollow circles: Unoccupied shell model capacities</p>", unsafe_allow_html=True)
+
+st.markdown("---")
+
+# --- COMPLETE PROFILE SECTION (TOGGLE BUTTON) ---
+col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+with col_btn2:
+    button_label = "🧪 Hide complete profile" if st.session_state.show_complete_profile else "🧪 Complete this element’s profile"
+    if st.button(button_label, use_container_width=True, type="primary"):
+        st.session_state.show_complete_profile = not st.session_state.show_complete_profile
+        st.rerun()
+
+if st.session_state.show_complete_profile:
+    st.markdown(f"## 🔬 Comprehensive Scientific Profile: {current_element['name']}")
+    
+    p_tab1, p_tab2, p_tab3, p_tab4 = st.tabs(["Atomic & Electronic", "Physical Properties", "Chemical & Ions", "Applications & Facts"])
+    
+    with p_tab1:
+        st.markdown(f"**Protons:** {current_element['protons']}")
+        st.markdown(f"**Neutral Electrons:** {current_element['electrons_neutral']}")
+        st.markdown(f"**Neutrons:** {current_element['neutrons']}")
+        st.markdown(f"**Valence Electrons:** {current_element['valence_electrons']}")
+        st.markdown(f"**Shell Distribution:** {current_element['shell_distribution']}")
+        st.markdown(f"**Discovery Year:** {current_element['discovery_year']}")
+        st.markdown(f"**Discoverer:** {current_element['discoverer']}")
+
+    with p_tab2:
+        st.markdown(f"**Density:** {current_element['density']}")
+        st.markdown(f"**Melting Point:** {current_element['melting_point']}")
+        st.markdown(f"**Boiling Point:** {current_element['boiling_point']}")
+        st.markdown(f"**Phase at Room Temp:** {current_element['phase']}")
+
+    with p_tab3:
+        st.markdown(f"**Common Oxidation States:** {', '.join(current_element['oxidation_states'])}")
+        st.markdown(f"**Common Ionic Charges:** {', '.join(current_element['ionic_charges'])}")
+        st.markdown(f"**Common Compounds:** {', '.join(current_element['common_compounds'])}")
+
+    with p_tab4:
+        st.markdown("### Practical Applications")
+        for app in current_element['applications']:
+            st.markdown(f"- {app}")
+        
+        st.markdown("### Interesting Scientific Facts")
+        for fact in current_element['facts']:
+            st.markdown(f"- {fact}")
+            
+        st.markdown("### Data References")
+        for ref in current_element['references']:
+            st.markdown(f"- {ref}")
+
+st.markdown("---")
+
+# --- COMPLETE TRADITIONAL PERIODIC TABLE GRID (ALL 118 ELEMENTS) ---
+st.markdown("## 📊 Complete Interactive Periodic Table (118 Elements)")
+st.markdown("Click any element tile to inspect its properties, atomic structure, and Bohr diagram.")
+
+# Helper function to render an element card in the grid
+def render_element_tile(atomic_num):
+    el = get_element_by_atomic_number(atomic_num)
+    if not el:
+        st.empty()
+        return
+
+    is_selected = (int(atomic_num) == st.session_state.selected_atomic_num)
+    color = FAMILY_COLORS.get(el["family"], "#3b82f6")
+    
+    border_style = "border: 3px solid #f8fafc;" if is_selected else f"border: 1px solid {color};"
+    bg_style = f"background-color: {color}33;" if is_selected else "background-color: #111e38;"
+
+    button_label = f"**{el['symbol']}**\n{el['atomic_number']}"
+    
+    if st.button(f"{el['atomic_number']}: {el['symbol']} ({el['name']})", key=f"periodic_{atomic_num}", use_container_width=True):
+        st.session_state.selected_atomic_num = atomic_num
+        st.session_state.selected_family = el["family"]
+        st.rerun()
+
+# Periodic Table Matrix Construction (Periods 1 to 7 with Groups 1 to 18)
+# We map each (period, group) to atomic number
+table_grid = {
+    (1, 1): 1, (1, 18): 2,
+    (2, 1): 3, (2, 2): 4, (2, 13): 5, (2, 14): 6, (2, 15): 7, (2, 16): 8, (2, 17): 9, (2, 18): 10,
+    (3, 1): 11, (3, 2): 12, (3, 13): 13, (3, 14): 14, (3, 15): 15, (3, 16): 16, (3, 17): 17, (3, 18): 18,
+    (4, 1): 19, (4, 2): 20, (4, 3): 21, (4, 4): 22, (4, 5): 23, (4, 6): 24, (4, 7): 25, (4, 8): 26, (4, 9): 27, (4, 10): 28, (4, 11): 29, (4, 12): 30, (4, 13): 31, (4, 14): 32, (4, 15): 33, (4, 16): 34, (4, 17): 35, (4, 18): 36,
+    (5, 1): 37, (5, 2): 38, (5, 3): 39, (5, 4): 40, (5, 5): 41, (5, 6): 42, (5, 7): 43, (5, 8): 44, (5, 9): 45, (5, 10): 46, (5, 11): 47, (5, 12): 48, (5, 13): 49, (5, 14): 50, (5, 15): 51, (5, 16): 52, (5, 17): 53, (5, 18): 54,
+    (6, 1): 55, (6, 2): 56, # 57-71 are lanthanides
+    (6, 3): 71, # Lutetium is main table group 3 period 6
+    (6, 4): 72, (6, 5): 73, (6, 6): 74, (6, 7): 75, (6, 8): 76, (6, 9): 77, (6, 10): 78, (6, 11): 79, (6, 12): 80, (6, 13): 81, (6, 14): 82, (6, 15): 83, (6, 16): 84, (6, 17): 85, (6, 18): 86,
+    (7, 1): 87, (7, 2): 88, # 89-103 are actinides
+    (7, 3): 103, # Lawrencium is main table group 3 period 7
+    (7, 4): 104, (7, 5): 105, (7, 6): 106, (7, 7): 107, (7, 8): 108, (7, 9): 109, (7, 10): 110, (7, 11): 111, (7, 12): 112, (7, 13): 113, (7, 14): 114, (7, 15): 115, (7, 16): 116, (7, 17): 117, (7, 18): 118
+}
+
+# Render periods 1 to 7
+for p in range(1, 8):
+    cols = st.columns(18)
+    for g in range(1, 19):
+        with cols[g-1]:
+            # Special handling for Lanthanides (57-70) and Actinides (89-102) placeholders in main table
+            if p == 6 and g == 3:
+                # Show La placeholder or button
+                el = ELEMENTS_DATA["57"]
+                is_sel = (57 == st.session_state.selected_atomic_num)
+                if st.button(f"57\nLa", key="per_57", use_container_width=True):
+                    st.session_state.selected_atomic_num = 57
+                    st.session_state.selected_family = "Lanthanides"
+                    st.rerun()
+            elif p == 7 and g == 3:
+                el = ELEMENTS_DATA["89"]
+                if st.button(f"89\nAc", key="per_89", use_container_width=True):
+                    st.session_state.selected_atomic_num = 89
+                    st.session_state.selected_family = "Actinides"
+                    st.rerun()
+            else:
+                # Find element matching period and group
+                match_z = None
+                for (tp, tg), tz in table_grid.items():
+                    if tp == p and tg == g:
+                        match_z = tz
+                        break
+                if match_z:
+                    el = ELEMENTS_DATA[str(match_z)]
+                    is_sel = (match_z == st.session_state.selected_atomic_num)
+                    btn_label = f"{match_z}\n{el['symbol']}"
+                    if st.button(btn_label, key=f"per_{match_z}", use_container_width=True):
+                        st.session_state.selected_atomic_num = match_z
+                        st.session_state.selected_family = el["family"]
+                        st.rerun()
+                else:
+                    st.write("")
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# Lanthanides Row underneath
+st.markdown("#### Lanthanides (57–71)")
+l_cols = st.columns(15)
+for idx, z in enumerate(range(57, 72)):
+    el = ELEMENTS_DATA[str(z)]
+    with l_cols[idx]:
+        if st.button(f"{z}\n{el['symbol']}", key=f"lanth_{z}", use_container_width=True):
+            st.session_state.selected_atomic_num = z
+            st.session_state.selected_family = "Lanthanides"
+            st.rerun()
+
+# Actinides Row underneath
+st.markdown("#### Actinides (89–103)")
+a_cols = st.columns(15)
+for idx, z in enumerate(range(89, 104)):
+    el = ELEMENTS_DATA[str(z)]
+    with a_cols[idx]:
+        if st.button(f"{z}\n{el['symbol']}", key=f"actin_{z}", use_container_width=True):
+            st.session_state.selected_atomic_num = z
+            st.session_state.selected_family = "Actinides"
+            st.rerun()
+
+st.markdown("---")
+st.markdown("<p style='text-align: center; color: #64748b;'>Interactive Periodic Table & Element Explorer — Built with Python, Streamlit & Matplotlib.</p>", unsafe_allow_html=True)
